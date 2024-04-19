@@ -974,6 +974,8 @@ class Shell(CmdHistory, Which):
             stdout, stderr = Popen([ self.shellCmd() , '-c',"sudo echo %s" % msg ] \
                 ,stdin=PIPE,stdout=PIPE,stderr=PIPE,\
                 universal_newlines=True ).communicate( "%s\n" % sudoPassword )
+            if self.signal() == 2:
+                return False
             trial=trial + 1
         if trial < 3:
             self.is_sudo( True )
@@ -988,7 +990,7 @@ class Shell(CmdHistory, Which):
             elif useSudo or self.sudo_test():
                 if self.sudo_cmd() != "":
                     cmd = '%s %s -rf %s' % (self.sudo_cmd(), rm_cmd, filePath)
-            if cmd=="" :
+            if cmd=="" or self.signal == 3:
                 return False
             self.cmd_history(cmd)
             self.shell( cmd )
@@ -1513,7 +1515,7 @@ class AppMsg(OS):
             '    "%s"' % self.homepage(),
             '',
             'Installation command:',
-            '    curl -fsSL %s|%s' % (self.downloadUrl(), python_exe),
+            '    curl -fsSL %s | %s' % (self.downloadUrl(), python_exe),
             ''
         ]
         starLine=[]
@@ -1928,28 +1930,28 @@ class Installer(OS):
     def install_python_dev(self):
         if self.python2() != '':
             if self.is_alpine():
-                self.install_package('python2-dev')
+                self.install_package('python2-dev','/usr/bin/python3-config')
             elif self.is_debian():
-                self.install_package('python-dev')
+                self.install_package('python-dev','/usr/bin/python3-config')
             elif self.is_fedora():
-                self.install_package('python2-devel')
+                self.install_package('python2-devel','/usr/bin/python3-config')
             elif self.is_redhat():
-                self.install_package('python-devel')    
+                self.install_package('python-devel','/usr/bin/python3-config')
             elif self.is_opensuse():
-                self.install_package('python-devel')
+                self.install_package('python-devel','/usr/bin/python3-config')
             else:
-                self.install_package('python-devel')
+                self.install_package('python-devel','/usr/bin/python3-config')
         if self.python3() != '':
             if self.is_alpine():
-                self.install_package('python3-dev')
+                self.install_package('python3-dev','/usr/bin/python3-config')
             elif self.is_debian():
-                self.install_package('python3-dev')
+                self.install_package('python3-dev','/usr/bin/python3-config')
             elif self.is_fedora():
-                self.install_package('python3-devel')
+                self.install_package('python3-devel','/usr/bin/python3-config')
             elif self.is_redhat():
-                self.install_package('python3-devel')
+                self.install_package('python3-devel','/usr/bin/python3-config')
             elif self.is_opensuse():
-                self.install_package('python3-devel')
+                self.install_package('python3-devel','/usr/bin/python3-config')
             else:
                 self.install_package('pytho3-devel')
         if self.python3() == '' and self.python2() == '':
@@ -2477,7 +2479,10 @@ class Ask(FromPipe):
         # fromPipe() usually involve from curl and don't have stdin
         if self.fromPipe():
             return None
-        return self.__ask_number__('Choose the profile number? ')
+        number = self.__ask_number__('Choose the profile number? ')
+        if number is None:
+            return -1
+        return number
 
     def ask_create_ini(self):
         # fromPipe() usually involve from curl and don't have stdin
@@ -2530,11 +2535,11 @@ class Ask(FromPipe):
         return self.__signal__
 
     def signal_handler(self, sig, frame):
+        self.signal(sig)
         if sig == 2:
             self.prn('\nYou pressed Ctrl+C!\nPress Enter to Leave!')
         if sig == 3:
-            self.prn('\nYou pressed Ctrl+\\!')
-        self.signal(sig)
+            self.prn('\nYou pressed Ctrl+\!')
 
 class ShellProfile(Shell):
 
@@ -2779,7 +2784,7 @@ class Temp(Shell):
         return ""
 
 class AppBase(Installer, AppPara, Ask, ShellProfile, FromPipe, AppMsg, Curl, Temp):
-    VERSION="1.10"
+    VERSION="1.12"
 
     __here__ = __file__
 
@@ -2842,7 +2847,8 @@ class AppBase(Installer, AppPara, Ask, ShellProfile, FromPipe, AppMsg, Curl, Tem
                             self.history_copy_static_lib(self.thisFile(), currentframe().f_lineno)
                             self.cp(self.thisFile(), self.globalInstallPath(1), useSudo=True)
                     else:
-                        self.msg_sudo_failed()
+                        if self.signal() != 2:
+                            self.msg_sudo_failed()
                         result = False
         else:
             self.removeGlobalInstaller()
@@ -2871,6 +2877,8 @@ class AppBase(Installer, AppPara, Ask, ShellProfile, FromPipe, AppMsg, Curl, Tem
                     return self.__self_install__(this=self.thisFile(), verbal=verbal, sudo=True)
                 else:
                     return self.__self_install__(this=self.thisFile(), verbal=verbal, sudo=True)
+            elif self.signal() == 2:
+                return False
         elif self.username() != 'root':
             self.msg_root_continue()
             return False
@@ -3489,7 +3497,7 @@ class AppBase(Installer, AppPara, Ask, ShellProfile, FromPipe, AppMsg, Curl, Tem
                         self.sudoRemoveFile(self.globalInstallPath(1))
                         result = True
                 else:
-                    if verbal:
+                    if verbal and self.signal() != 2:
                         self.msg_unintall_need_root()
                     return False
             else:
@@ -3720,50 +3728,59 @@ class AppBase(Installer, AppPara, Ask, ShellProfile, FromPipe, AppMsg, Curl, Tem
 
 class DockerConfig(object):
 
+    def get_profile_list(self, config):
+        profileList = ['Alpine-3.16', 'Alpine-3.17', 'Alpine-3.18', 'Centos-7', 'Centos-8', 'Centos-9', 
+            'Debian-10', 'Debian-11', 'Debian-12', 'Ubuntu-18.04', 'Ubuntu-18.10', 'Ubuntu-19.04', 
+            'Ubuntu-19.10','Ubuntu-20.04', 'Ubuntu-20.10', 'Ubuntu-21.04', 'Ubuntu-21.10',
+            'Ubuntu-21.04', 'Ubuntu-21.10', 'Ubuntu-22.04', 'Ubuntu-22.10', 'Ubuntu-23.04',
+            'Ubuntu-23.10', 'Ubuntu-24.04']
+        self.foundList = []
+        choice = []
+        index = 1
+        for p in profileList:
+            if config.has_section(p):
+                self.foundList.append(p)
+                choice.append("%6d) %s" % (index, p))
+                index += 1
+        if index == 1:
+            choice = ['N/A']
+        return choice, index
+
+    def get_profile(self, display_list):
+        config = configparser.ConfigParser()
+        config.read( self.configFile() )
+        sessionName=''
+        if config.has_section(self.profile()):
+            sessionName=self.profile()
+        if not (sessionName!= '' and config.has_section(sessionName)):
+            choice, total = self.get_profile_list(config)
+            if len(self.foundList) == 0:
+                self.prn("Proifle: %s NOT FOUND" % sessionName)
+                return config, ''
+            elif len(self.foundList) == 1:
+                sessionName=self.foundList[0]
+            elif display_list:
+                self.prn("\n".join(choice))
+            else:
+                self.prn("Please choose the following by typing the number (type 'exit' to exit): ")
+                self.prn("\n".join(choice))
+                self.prn("  type 'exit' to exit")
+                num = self.ask_choose_profile_number()
+                if num == -1 :
+                    exit()
+                while num<1 or num >= total:
+                    num = self.ask_choose_profile_number()
+                    if num == -1 :
+                        exit()
+                sessionName=self.foundList[num - 1]
+        self.profile(sessionName)
+        return config, sessionName
+
     def check_config(self, display_list=False):
         if self.configFile() == '':
             self.find_config()
         if self.configFile() != '':
-            config = configparser.ConfigParser()
-            config.read( self.configFile() )
-            if config.has_section(self.profile()):
-                sessionName=self.profile()
-            else:
-                sessionName=''
-            if not (sessionName!= '' and config.has_section(sessionName)):
-                profileList = ['Alpine-3.16', 'Alpine-3.17', 'Alpine-3.18', 'Centos-7', 'Centos-8', 'Centos-9', 
-                    'Debian-10', 'Debian-11', 'Debian-12', 'Ubuntu-18.04', 'Ubuntu-18.10', 'Ubuntu-19.04', 
-                    'Ubuntu-19.10','Ubuntu-20.04', 'Ubuntu-20.10', 'Ubuntu-21.04', 'Ubuntu-21.10',
-                    'Ubuntu-21.04', 'Ubuntu-21.10', 'Ubuntu-22.04', 'Ubuntu-22.10', 'Ubuntu-23.04',
-                    'Ubuntu-23.10']
-                foundList = []
-                choice = []
-                index = 1
-                for p in profileList:
-                    if config.has_section(p):
-                        foundList.append(p)
-                        choice.append("%6d) %s" % (index, p))
-                        index += 1
-                if len(foundList) == 0:
-                    self.prn("Proifle: %s NOT FOUND" % sessionName)
-                    return False
-                elif len(foundList) == 1:
-                    sessionName=foundList[0]
-                elif display_list:
-                    self.prn("\n".join(choice))
-                else:
-                    self.prn("Please choose the following by typing the number (type 'exit' to exit): ")
-                    self.prn("\n".join(choice))
-                    self.prn("  type 'exit' to exit")
-                    num = self.ask_choose_profile_number()
-                    if num == -1 :
-                        exit()
-                    while num<1 or num >= index:
-                        num = self.ask_choose_profile_number()
-                        if num == -1 :
-                            exit()
-                    sessionName=foundList[num - 1]
-            self.profile(sessionName)
+            config, sessionName = self.get_profile(display_list)
             if config.has_section("project"):
                 try :
                     self.projectName( config.get("project", "projectName"))
@@ -3842,7 +3859,8 @@ class DockerConfig(object):
                 try:
                     arch = self.arch()
                     self.targetOS(config.get(sessionName, "os"))
-                    self.dockerName("%s-%s" % (self.projectName(), self.targetOS()))
+                    if self.dockerName() == '':
+                        self.dockerName("%s-%s" % (self.projectName(), self.targetOS()))
                     if arch == '':
                         self.docker_tag(config.get(sessionName, "os"))
                     else :
@@ -3862,17 +3880,20 @@ class DockerConfig(object):
                     self.exposedPort( config.get(sessionName, "exposedPort"))
                 except:
                     pass
-                if self.maintainer() == '':
-                    self.infoMsg("Can't find maintainer in config", "CONFIG FAILED")
-                if self.maintainerEmail() == '':
-                    self.infoMsg("Can't find maintainerEmail in config", "CONFIG FAILED")
-                if self.projectName() == '':
-                    self.infoMsg("Can't find projectName in config", "CONFIG FAILED")
-                if self.dockerName() == '':
-                    self.infoMsg("Can't find dockerName in config", "CONFIG FAILED")
-                if self.docker_tag() == '':
-                    self.infoMsg("Can't find tag in config", "CONFIG FAILED")
-                return self.maintainer() != '' and self.maintainerEmail() != '' and self.projectName() != '' and self.dockerName() != '' and self.docker_tag() !=''
+            if sessionName=="":
+                return False
+            if self.maintainer() == '':
+                self.infoMsg("Can't find maintainer in config", "CONFIG FAILED")
+            if self.maintainerEmail() == '':
+                self.infoMsg("Can't find maintainerEmail in config", "CONFIG FAILED")
+            if self.projectName() == '':
+                self.infoMsg("Can't find projectName in config", "CONFIG FAILED")
+            if self.dockerName() == '':
+                self.infoMsg("Can't find dockerName in config", "CONFIG FAILED")
+            if self.docker_tag() == '':
+                self.infoMsg("Can't find tag in config", "CONFIG FAILED")
+            return self.maintainer() != '' and self.maintainerEmail() != '' and self.projectName() != '' and self.dockerName() != '' and self.docker_tag() !=''
+                
         else :
             self.criticalMsg("File: project.ini not found!","NO CONFIG")
         return False
@@ -3964,30 +3985,6 @@ class DockerConfig(object):
             self.__externalPort__=''
         return self.__externalPort__
 
-    def getDockerName(self):
-        self.container_ls()
-        choice = []
-        dockerList = []
-        index = 1
-        for p in self.__containers__:
-            sp=re.sub(r"\s+.+","",re.sub(r"^[a-z0-9]+\s+","",p))
-            dk= re.sub(r"\s+.+","",p)
-            if sp != "" and sp != "CONTAINER":
-                choice.append("%6d) %s (%s)" % (index, sp, dk))
-                dockerList.append(dk)
-                index += 1
-        self.prn("Please choose the following by typing the number (type 'exit' to exit): ")
-        self.prn("\n".join(choice))
-        self.prn("  type 'exit' to exit")
-        num = self.ask_choose_profile_number()
-        if num is None :
-            exit()
-        while num is not None and (num<1 or num >= index):
-            num = self.ask_choose_profile_number()
-            if num == -1 :
-                return ""
-        return dockerList[num - 1]
-
     def imagePath(self, imagePath=None):
         if imagePath is not None:
             self.__imagePath__=imagePath
@@ -3998,7 +3995,7 @@ class DockerConfig(object):
 
     def maintainer(self, maintainer=None):
         if maintainer is not None:
-            self.__maintainer__=maintainer
+            self.__maintainer__=re.sub(r"\s+", "", maintainer).lower()
             return self
         elif not hasattr(self,'__maintainer__'):
             self.__maintainer__=''
@@ -4116,6 +4113,14 @@ class DockerBuild(object):
             self.__hasUsr__=False
         return self.__hasUsr__
 
+    def hasVar(self, hasVar=None):
+        if hasVar is not None:
+            self.__hasVar__=hasVar
+            return self
+        elif not hasattr(self, '__hasVar__'):
+            self.__hasVar__=False
+        return self.__hasVar__
+
     def image_build(self, tag):
         result = self.image_prebuild()
         if result:
@@ -4188,6 +4193,7 @@ class DockerBuild(object):
             self.hasLib64(self.pathexists('%s/lib64/' % img_path))
             self.hasEtc(self.pathexists('%s/etc/' % img_path))
             self.hasOpt(self.pathexists('%s/opt/' % img_path))
+            self.hasVar(self.pathexists(f'{img_path}/var/') )
             usrlib = '%s/usr/lib' % img_path
             usrLocalBin = '%s/usr/local/lib' % img_path
             lib = '%s/lib' % img_path
@@ -4220,11 +4226,15 @@ class DockerBuild(object):
                 self.history_compress("lib64.tar.gz", currentframe().f_lineno)
                 os.chdir(img_path)
                 self.tar_compress("../target/lib64.tar.gz","lib64")
-                os.chdir(self.curPath())
             if self.hasOpt():
                 self.history_compress("opt.tar.gz", currentframe().f_lineno)
                 os.chdir(img_path)
                 self.tar_compress("../target/opt.tar.gz","opt")
+            if self.hasVar():
+                self.history_compress("var.tar.gz", currentframe().f_lineno)
+                os.chdir(img_path)
+                self.tar_compress("../target/var.tar.gz","var")
+            os.chdir(self.curPath())
         else :
             self.criticalMsg("Dockerfile Not found", "DOCKERFILE")
         return result
@@ -4345,20 +4355,49 @@ class ContainerBase(object):
         if found == 0 :
             self.infoMsg("Docker Container: '%s' or '%s' missing!" % (self.dockerName(),'%s-test' % self.dockerName()), "NOT FOUND")
 
-    def container_restart(self, name):
-        cmd = ""
+    def container_restart(self, dockerName, display_history=False):
         if self.is_mac():
-             cmd = "docker container restart %s" % name
-        elif self.sudo_test():
-            cmd = "sudo docker container restart %s" % name
-        if cmd != '':
             self.cmd_history("# ** Docker Command ** ", currentframe().f_lineno)
-            self.cmd_history(cmd)
-            result, stdout = self.shell(cmd, True)
-            if stdout != '':
-                print(stdout)
+            try:
+                self.cmd_history(" ".join(["docker","container","restart", dockerName]))
+                if display_history:
+                    self.cmd_history_print()
+                subprocess.run(["docker","container","restart", dockerName])
+            except:
+                self.run_shell(" ".join(["docker","container","restart", dockerName]))
+        elif self.sudo_test():
+            self.cmd_history("# ** Docker Command ** ", currentframe().f_lineno)
+            try:
+                self.cmd_history(" ".join(["docker","container","restart", dockerName]))
+                if display_history:
+                    self.cmd_history_print()
+                subprocess.run(["sudo","docker","container","restart", dockerName])
+            except:
+                self.run_shell(" ".join(["sudo","docker","container","restart", dockerName]))
         else :
-            self.criticalMsg("Using incompatible OS or not able to use sudo", "RESTART FAILED")
+            self.criticalMsg("Terminated!","RESTART")
+
+    def container_start(self, dockerName, display_history=False):
+        if self.is_mac():
+            self.cmd_history("# ** Docker Command ** ", currentframe().f_lineno)
+            try:
+                self.cmd_history(" ".join(["docker","container","start", dockerName]))
+                if display_history:
+                    self.cmd_history_print()
+                subprocess.run(["docker","container","start", dockerName])
+            except:
+                self.run_shell(" ".join(["docker","container","start", dockerName]))
+        elif self.sudo_test():
+            self.cmd_history("# ** Docker Command ** ", currentframe().f_lineno)
+            try:
+                self.cmd_history(" ".join(["docker","container","start", dockerName]))
+                if display_history:
+                    self.cmd_history_print()
+                subprocess.run(["sudo","docker","container","start", dockerName])
+            except:
+                self.run_shell(" ".join(["sudo","docker","container","start", dockerName]))
+        else :
+            self.criticalMsg("Terminated!","START")
 
     def container_run(self, dockerName, tag):
         result = self.check_config()
@@ -4404,6 +4443,28 @@ class ContainerBase(object):
         if result: 
             self.safeMsg("Command 'run' executed!", "SUCCESS")
 
+    def container_stop(self, dockerName, display_history=False):
+        if self.is_mac():
+            self.cmd_history("# ** Docker Command ** ", currentframe().f_lineno)
+            try:
+                self.cmd_history(" ".join(["docker","container","stop", dockerName]))
+                if display_history:
+                    self.cmd_history_print()
+                subprocess.run(["docker","container","stop", dockerName])
+            except:
+                self.run_shell(" ".join(["docker","container","stop", dockerName]))
+        elif self.sudo_test():
+            self.cmd_history("# ** Docker Command ** ", currentframe().f_lineno)
+            try:
+                self.cmd_history(" ".join(["docker","container","stop", dockerName]))
+                if display_history:
+                    self.cmd_history_print()
+                subprocess.run(["sudo","docker","container","stop", dockerName])
+            except:
+                self.run_shell(" ".join(["sudo","docker","container","stop", dockerName]))
+        else :
+            self.criticalMsg("Terminated!","STOP")
+
     def container_rm(self, name):
         cmd = ""
         if self.is_mac():
@@ -4448,7 +4509,7 @@ class ImageBase(object):
             for l in stdout.split('\n'):
                 token = l.split()
                 if len(token) > 3:
-                    self.cmd_history("# ** Docker Command ** ")
+                    self.cmd_history("# ** Docker Command ** ", currentframe().f_lineno)
                     if self.osVersion() == 'macOS':
                         cmd = "docker image rm %s" % token[2]
                     else :
@@ -4466,7 +4527,6 @@ class ImageBase(object):
         if self.osVersion() == 'macOS':
             cmd = "docker image ls"
         elif self.sudo_test():
-
             cmd = "sudo docker image ls"
         if cmd != '' :
             result, stdout = self.shell(cmd)
@@ -4474,7 +4534,7 @@ class ImageBase(object):
                 if '<none>' in l:
                     token = l.split()
                     if len(token) > 3:
-                        self.cmd_history("# ** Docker Command ** ")
+                        self.cmd_history("# ** Docker Command ** ", currentframe().f_lineno)
                         if self.osVersion() == 'macOS':
                             cmd = "docker image rm %s" % token[2]
                         else :
@@ -4526,7 +4586,7 @@ class DockerBase(AppBase, DockerConfig, DockerBuild, ContainerBase, ImageBase):
 
     def start(self):
         self.allowInstallLocal(True).allowDisplayInfo(False)
-        self.usage("attach|build|container|clean-image|exec|image|ls|rm|run|self-install")
+        self.usage("attach|build|clean|clean-image|container|exec|image|ls|restart|rm|run|self-install|start|stop")
         if not self.parseArgs():
             if len(sys.argv) > 1:
                 shortSwitch = []
@@ -4591,6 +4651,26 @@ class DockerBase(AppBase, DockerConfig, DockerBuild, ContainerBase, ImageBase):
                         self.safeMsg('Using profile: "%s". Architecture: "%s".' % (self.profile(),arch),'PROFILE')
                         self.image_build(tag)
                     return True
+                elif self.cmd() == "clean":
+                    result = self.check_config()
+                    dockerName = ""
+                    if result:
+                        if self.testProfile():
+                            tag = '%s-test' % self.docker_tag()
+                            dockerName = '%s-test' % self.dockerName()
+                        else:
+                            dockerName = self.dockerName()
+                            tag = self.docker_tag()
+                        self.safeMsg('Using profile: "%s". Architecture: "%s". DockerName: "%s".' % (self.profile(),arch, dockerName),'PROFILE')
+                    if dockerName !="":
+                        self.cmd_history("# ** Remove temporary folder **", currentframe().f_lineno)
+                        dockerPath=self.dockerPath()
+                        if dockerPath !="":
+                            self.removeFolder("%s/docker-image" % dockerPath, use_history=True)
+                            self.removeFolder("%s/target" % dockerPath, use_history=True)
+                            self.removeFolder("%s/repo" % dockerPath, use_history=True)
+                        self.cmd_history_print()
+                    return True
                 elif self.cmd() == "clean-image" or self.cmd() == "clean-images":
                     self.image_clean_unused()
                     return True
@@ -4602,6 +4682,7 @@ class DockerBase(AppBase, DockerConfig, DockerBuild, ContainerBase, ImageBase):
                     result = self.check_config()
                     dockerName = ""
                     if result:
+                        print(1)
                         if self.testProfile():
                             tag = '%s-test' % self.docker_tag()
                             dockerName = '%s-test' % self.dockerName()
@@ -4611,10 +4692,32 @@ class DockerBase(AppBase, DockerConfig, DockerBuild, ContainerBase, ImageBase):
                         self.safeMsg('Using profile: "%s". Architecture: "%s". DockerName: "%s".' % (self.profile(),arch, dockerName),'PROFILE')
                         if not self.check_container(dockerName):
                             self.container_run(dockerName, tag)
-                    else:
-                        dockerName=self.getDockerName()
                     if dockerName !="":
                         self.container_exec(dockerName, display_history=True)
+                    return True
+                elif self.cmd() == 'stop':
+                    result = self.check_config()
+                    if result:
+                        if self.testProfile():
+                            tag = '%s-test' % self.docker_tag()
+                            dockerName = '%s-test' % self.dockerName()
+                        else:
+                            dockerName = self.dockerName()
+                            tag = self.docker_tag()
+                        self.safeMsg('Using profile: "%s". Architecture: "%s". DockerName: "%s".' % (self.profile(),arch, dockerName),'PROFILE')
+                        self.container_stop(dockerName, display_history=True)
+                    return True
+                elif self.cmd() == 'restart':
+                    result = self.check_config()
+                    if result:
+                        if self.testProfile():
+                            tag = '%s-test' % self.docker_tag()
+                            dockerName = '%s-test' % self.dockerName()
+                        else:
+                            dockerName = self.dockerName()
+                            tag = self.docker_tag()
+                        self.safeMsg('Using profile: "%s". Architecture: "%s". DockerName: "%s".' % (self.profile(),arch, dockerName),'PROFILE')
+                        self.container_restart(dockerName, display_history=True)
                     return True
                 elif self.cmd() == 'attach':
                     result = self.check_config()
@@ -4698,7 +4801,7 @@ class DockerBase(AppBase, DockerConfig, DockerBuild, ContainerBase, ImageBase):
                                 self.removeFolder("%s/repo" % dockerPath, use_history=True)
                             self.cmd_history_print()
                     return True
-                elif self.cmd() == 'restart':
+                elif self.cmd() == 'start':
                     result = self.check_config()
                     if result:
                         if self.testProfile():
@@ -4706,7 +4809,7 @@ class DockerBase(AppBase, DockerConfig, DockerBuild, ContainerBase, ImageBase):
                         else:
                             dockerName = self.dockerName()
                         self.safeMsg('Using profile: "%s". Architecture: "%s". DockerName: "%s".' % (self.profile(),arch, dockerName),'PROFILE')
-                        self.container_restart(dockerName)
+                        self.container_start(dockerName)
                     return True
                 elif self.cmd() == 'run':
                     result = self.check_config()
@@ -4727,5 +4830,5 @@ class DockerBase(AppBase, DockerConfig, DockerBuild, ContainerBase, ImageBase):
 
 if __name__ == "__main__":
     app = DockerBase(__file__)
-    app.setInstallation(appName='d-master',author='Cloudgen Wong',homepage="https://github.com/cloudgen2/d-master",downloadUrl="https://dl.leolio.page/d-master",lastUpdate='2024-3-20',majorVersion=15,minorVersion=20)
+    app.setInstallation(appName='d-master',author='Cloudgen Wong',homepage="https://github.com/cloudgen2/d-master",downloadUrl="https://dl.leolio.page/d-master",lastUpdate='2024-4-17',majorVersion=16,minorVersion=17)
     app.start()
