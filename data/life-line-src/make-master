@@ -1,0 +1,1324 @@
+#!/bin/sh
+# -*- coding: utf-8 -*-
+""":"
+_PY_=$(which python); if [ -z $_PY_ ]; then _PY_=$(which python3); if [ -z $_PY_ ]; then _PY_=$(which python2); if [ -z $_PY_ ]; then exit 1; fi; fi; fi; exec $_PY_ "$0" "$@"
+":"""
+
+#
+# You needed to install python or python3 to run this application:
+#
+#     for Almalinux,
+#         sudo dnf install python3 -y
+#
+#     for Red Hat Enterprise,
+#         sudo dnf install python3 -y
+#
+#     for Rocky Linux 3.8,
+#         sudo dnf install python3 -y
+#
+#     for CentOS Stream 8,
+#         sudo dnf install python3 -y
+#
+#     for Alpine,
+#         apk add python3
+#
+
+from __future__ import print_function
+try:
+    import ConfigParser as configparser
+except:
+    import configparser
+from datetime import datetime
+import getpass
+import os
+import pwd
+try:
+    raw_input
+except NameError:
+    raw_input = input
+import re
+import signal
+from subprocess import Popen, PIPE
+import subprocess
+import shutil
+import socket
+import time
+import sys
+
+class Child(object):
+
+    def parent(self,x=None):
+        if not hasattr(self,'__parent__'):
+            self.__parent__=None
+        if x is not None:
+            if self.__parent__ is None:
+                self.__parent__=x
+        return self.__parent__
+
+    def __init__(self,fromClass):
+        self.parent(fromClass)
+
+class ValueChild(Child):
+
+    def value(self,x=None):
+        if x is not None:
+            self.__value__=x
+            return self.parent()
+        elif not hasattr(self,'__value__'):
+            self.__value__=None
+        return self.__value__
+
+    def __init__(self,fromClass,value=None):
+        try:
+            super().__init__(fromClass)
+        except:
+            super(ValueChild, self).__init__(fromClass)
+        self.value(value)
+
+class AttrChild(ValueChild):
+
+    def __init__(self,fromClass,name,value=None):
+        try:
+            super().__init__(fromClass,value)
+        except:
+            super(AttrChild,self).__init__(fromClass,value)
+        self.__name__=name
+        fromClass.__dict__[name]=self.value.__get__(fromClass)
+
+class AppChild(Child):
+
+    def home(self):
+        return os.path.expanduser("~")
+
+    def local(self):
+        return socket.gethostname()
+
+    def now(self):
+        return str(datetime.now())
+
+    def pid(self):
+        return os.getpid()
+
+    def userID(self):
+        return os.getuid()
+
+    def username(self):
+        return pwd.getpwuid(self.parent().userID())[0]
+
+    def version(self):
+        return "%s.%s" % (self.parent().majorVersion(),self.parent().minorVersion())
+
+
+    def signal_handler(self, sig, frame):
+        print('\nYou pressed Ctrl+C!')
+        sys.exit(0)
+
+    def __init__(self,fromClass=None,appName='',author='',homepage='',lastUpdate='',majorVersion=0,minorVersion=0):
+        try:
+            super().__init__(fromClass)
+        except:
+            super(AppChild, self).__init__(fromClass)
+        AttrChild(fromClass=fromClass,name="author",value=author)
+        AttrChild(fromClass=fromClass,name="appName",value=appName)
+        AttrChild(fromClass=fromClass,name="homepage",value=homepage)
+        AttrChild(fromClass=fromClass,name="lastUpdate",value=lastUpdate)
+        AttrChild(fromClass=fromClass,name="majorVersion",value=majorVersion)
+        AttrChild(fromClass=fromClass,name="minorVersion",value=minorVersion)
+        fromClass.__dict__['home'] = self.home.__get__(fromClass)
+        fromClass.__dict__['local'] = self.local.__get__(fromClass)
+        fromClass.__dict__['now'] = self.now.__get__(fromClass)
+        fromClass.__dict__['pid'] = self.pid.__get__(fromClass)
+        fromClass.__dict__['userID'] = self.userID.__get__(fromClass)
+        fromClass.__dict__['username'] = self.username.__get__(fromClass)
+        fromClass.__dict__['version'] = self.version.__get__(fromClass)
+        signal.signal(signal.SIGINT, self.signal_handler)
+
+class MsgChild(Child):
+
+    BOLD='\033[1m'
+    DARK_AMBER='\033[33m'
+    DARK_BLUE='\033[34m'
+    DARK_TURQUOISE='\033[36m'
+    END='\033[0m'
+    FLASHING='\033[5m'
+    ITALICS='\033[3m'
+    LIGHT_RED='\033[91m'
+    LIGHT_AMBER='\033[93m'
+    LIGHT_BLUE='\033[94m'
+    LIGHT_GREEN='\033[92m'
+    LIGHT_TURQUOISE='\033[96m'
+
+    def __coloredMsg__(self,color=None):
+        if color is None :
+            if self.__message__() == '':
+                return ''
+            else:
+                return "%s%s%s" % (self.__colorMsgColor__(),\
+                    self.__message__(),self.__colorMsgTerm__())
+        else:
+            if color == '' or not self.useColor():
+                self.__colorMsgColor__('')
+                self.__colorMsgTerm__('')
+            else:
+                self.__colorMsgColor__(color)
+                self.__colorMsgTerm__(MsgChild.END)
+            return self
+
+    def criticalMsg(self,msg,tag=''):
+        self.__tag__(tag).__message__(msg) \
+            .__timeMsg__(MsgChild.BOLD + MsgChild.ITALICS + \
+            MsgChild.DARK_AMBER) \
+            .__header__(MsgChild.BOLD + MsgChild.DARK_AMBER) \
+            .__coloredMsg__(MsgChild.ITALICS + MsgChild.LIGHT_AMBER) \
+            .__tagMsg__(MsgChild.FLASHING + MsgChild.LIGHT_RED,\
+            MsgChild.LIGHT_AMBER)
+        self.print("%s" % (self.__formattedMsg__()))
+        return self
+
+    def __formattedMsg__(self):
+        return "%s %s %s\n  %s" % (self.__timeMsg__(),self.__header__(),\
+            self.__tagMsg__(),self.__coloredMsg__())
+
+    def __header__(self,color=None):
+        if color is None:
+            return "%s%s(v%s) %s" % (self.__headerColor__(),\
+                self.parent().appName(),self.parent().version(),\
+                self.__headerTerm__())
+        else:
+            if color == '' or not self.useColor():
+                self.__headerColor__('')\
+                    .__headerTerm__('')
+            else:
+                self.__headerColor__(color)\
+                    .__headerTerm__(MsgChild.END)
+        return self
+
+    def infoMsg(self,msg,tag=''):
+        self.__tag__(tag).__message__(msg) \
+            .__timeMsg__(MsgChild.BOLD+MsgChild.ITALICS+MsgChild.DARK_BLUE) \
+            .__header__(MsgChild.BOLD+MsgChild.DARK_BLUE) \
+            .__coloredMsg__(MsgChild.ITALICS + MsgChild.LIGHT_BLUE) \
+            .__tagMsg__(MsgChild.LIGHT_AMBER,MsgChild.LIGHT_BLUE)
+        self.print("%s" % (self.__formattedMsg__()))
+        return self
+
+    def print(self, msg):
+        print("%s" % msg)
+        return self
+
+    def safeMsg(self,msg,tag=''):
+        self.__tag__(tag).__message__(msg).__timeMsg__(MsgChild.BOLD + MsgChild.ITALICS + \
+            MsgChild.DARK_TURQUOISE) \
+            .__header__(MsgChild.BOLD + MsgChild.DARK_TURQUOISE) \
+            .__coloredMsg__(MsgChild.ITALICS + MsgChild.LIGHT_TURQUOISE) \
+            .__tagMsg__(MsgChild.LIGHT_GREEN,MsgChild.LIGHT_TURQUOISE)
+        self.print("%s" % (self.__formattedMsg__()))
+        return self
+
+    def __timeMsg__(self,color=None):
+        if color is None:
+            return "%s%s%s" % (self.__timeColor__(),self.parent().now(),\
+                self.__timeTerm__())
+        else:
+            if color == '' or not self.useColor():
+                self.__timeColor__('')\
+                    .__timeTerm__('')
+            else:
+                self.__timeColor__(color)\
+                    .__timeTerm__(MsgChild.END)
+            return self
+
+    def __tagMsg__(self,color=None,outterColor=None):
+        if color is None:
+            if self.__tag__() == '' or not self.useColor():
+                return ': '
+            else:
+                return "%s[%s%s%s%s%s]:%s " % (self.__tagOutterColor__(),\
+                    self.__tagTerm__(),self.__tagColor__(),\
+                    self.__tag__(),self.__tagTerm__(),\
+                    self.__tagOutterColor__(),self.__tagTerm__())
+        else:
+            if color == '':
+                self.__tagColor__('')\
+                    .__tagOutterColor__('')\
+                    .__tagTerm__('')
+            else:
+                self.__tagColor__(color)\
+                    .__tagOutterColor__(outterColor)\
+                    .__tagTerm__(MsgChild.END)
+            return self
+
+    def __init__(self,fromClass=None,appName='',author='',homepage='',lastUpdate='',majorVersion=0,minorVersion=0):
+        try:
+            super().__init__(fromClass)
+        except:
+            super(MsgChild, self).__init__(fromClass)
+        AppChild(fromClass=fromClass,appName=appName,author=author,homepage=homepage,lastUpdate=lastUpdate,majorVersion=majorVersion,minorVersion=minorVersion)
+        AttrChild(fromClass=self,name="__colorMsgColor__",value="")
+        AttrChild(fromClass=self,name="__colorMsgTerm__",value="")
+        AttrChild(fromClass=self,name="__headerColor__",value="")
+        AttrChild(fromClass=self,name="__headerTerm__",value="")
+        AttrChild(fromClass=self,name="__message__",value="")
+        AttrChild(fromClass=self,name="useColor",value=True)
+        AttrChild(fromClass=self,name="__tag__",value="")
+        AttrChild(fromClass=self,name="__tagColor__",value="")
+        AttrChild(fromClass=self,name="__tagOutterColor__",value="")
+        AttrChild(fromClass=self,name="__tagTerm__",value="")
+        AttrChild(fromClass=self,name="__timeTerm__",value="")
+        AttrChild(fromClass=self,name="__timeColor__",value="")
+        AttrChild(fromClass=self,name="__tagTerm__",value="")
+        fromClass.__dict__['safeMsg']=self.safeMsg.__get__(fromClass)
+        fromClass.__dict__['criticalMsg']=self.criticalMsg.__get__(fromClass)
+        fromClass.__dict__['infoMsg']=self.infoMsg.__get__(fromClass)
+        fromClass.__dict__['print']=self.print.__get__(fromClass)
+
+class BasicApp(Child):
+
+    def linuxDistro(self):
+        if self.__distro__ !='':
+            return self.__distro__
+        fin = open("/etc/os-release", "rt")
+        self.__distro__ = ''
+        for line in fin:
+            if line.startswith('PRETTY_NAME='):
+                self.__distro__ = line.split('"')[1]
+        if 'Alpine' in self.__distro__:
+            self.parent().shellCmd("/bin/ash")
+        return self.__distro__ 
+
+    def pythonVersion(self):
+        if len(sys.version.split('\n'))>1:
+            return sys.version.split('\n')[0]
+        elif len( sys.version.split('['))>1:
+            return sys.version.split('[')[0]
+        else:
+            return sys.version
+
+    def removeFile(self, filePath):
+        if os.path.exists(filePath):
+            os.remove(filePath)
+
+    def removeFilePattern(self, dirPath, pattern):
+        if os.path.exists(dirPath) and os.path.isdir(dirPath):
+            for file in os.listdir(dirPath):
+                if file.endswith(pattern):
+                    os.remove("%s/%s" % (dirPath,file))
+
+    def removeFolder(self, dirPath):
+        if os.path.exists(dirPath) and os.path.isdir(dirPath):
+            shutil.rmtree(dirPath)
+
+    def shell(self, command, ignoreErr=False):
+        self.linuxDistro()
+        stdout,stderr = Popen([self.parent().shellCmd(),'-c',command],stdin=PIPE,stdout=PIPE,\
+                stderr=PIPE,universal_newlines=True).communicate('\n')
+        if stderr != "" and not ignoreErr:
+            self.parent().criticalMsg("Error in %s: %s" % (command, stderr), "ERROR")
+            return False, stderr
+        else:
+            return True, stdout
+
+    def sudo_test(self,msg='.'):
+        distro = self.parent().linuxDistro()
+        if self.isSudo():
+            return True
+        if distro.startswith('Alpine'):
+            stdout,stderr = Popen([self.parent().shellCmd(),'-c',"which sudo"],\
+                stdin=PIPE,stdout=PIPE,stderr=PIPE,universal_newlines=True)\
+                .communicate('\n')
+            if stdout=='':
+                return False
+        self.parent().infoMsg("Tesing sudo mode, your password may required!","SUDO")
+        stdout,stderr = Popen([self.parent().shellCmd(),'-c',"sudo echo %s" % msg],\
+            stdin=PIPE,stdout=PIPE,stderr=PIPE,universal_newlines=True)\
+            .communicate('\n')
+        trial=0
+        while stdout.strip() != msg.strip() and trial < 3:
+            sudoPassword=getpass.getpass('[sudo] password for %s: ' % self.parent().username())
+            stdout, stderr = Popen([self.parent().shellCmd(),'-c',"sudo echo %s" % msg] \
+                ,stdin=PIPE,stdout=PIPE,stderr=PIPE,\
+                universal_newlines=True).communicate("%s\n" % sudoPassword)
+            trial=trial + 1
+        if trial < 3:
+            self.isSudo(True)
+        return self.isSudo()
+
+    def sudoRemoveFile(self, filePath):
+        self.shell('sudo rm -rf %s' % filePath)
+
+    def which(self):
+        result, stdout = self.shell("which %s" % self.parent().appName(), ignoreErr=True)
+        return stdout.strip()
+
+    def __init__(self,fromClass=None,appName='',author='',lastUpdate='',homepage='',majorVersion=0,minorVersion=0):
+        try:
+            super().__init__(fromClass)
+        except:
+            super(BasicApp, self).__init__(fromClass)
+        MsgChild(fromClass=fromClass,appName=appName,author=author,lastUpdate=lastUpdate,homepage=homepage,majorVersion=majorVersion,minorVersion=minorVersion)
+        self.__distro__=''
+        AttrChild(fromClass=self,name="isSudo",value=False)
+        AttrChild(fromClass=fromClass,name="shellCmd",value="/bin/bash")
+        fromClass.__dict__['linuxDistro'] = self.linuxDistro.__get__(fromClass)
+        fromClass.__dict__['pythonVersion'] = self.pythonVersion.__get__(fromClass)
+        fromClass.__dict__['removeFile']=self.removeFile.__get__(fromClass)
+        fromClass.__dict__['removeFilePattern']=self.removeFilePattern.__get__(fromClass)
+        fromClass.__dict__['removeFolder']=self.removeFolder.__get__(fromClass)
+        fromClass.__dict__['sudo_test']=self.sudo_test.__get__(fromClass)
+        fromClass.__dict__['sudoRemoveFile']=self.sudoRemoveFile.__get__(fromClass)
+        fromClass.__dict__['shell'] = self.shell.__get__(fromClass)
+        fromClass.__dict__['which'] = self.which.__get__(fromClass)
+
+class InstallableApp(BasicApp):
+
+    def __alpine_ask_install_sudo__(self):
+        if 'yes' == self.__ask_yesno__('Do you want to install sudo? (yes/no) '):
+            result, stdout = self.shell("apk add sudo", True)
+            result, stdout = self.shell("echo '%wheel ALL=(ALL) ALL' > /etc/sudoers.d/wheel")
+
+    def __ask_yesno__(self, ask):
+        if not hasattr(self, '__regex_yesno__'):
+            self.__regex_yesno__ = re.compile(r"yes|no")
+        ask_yesno = raw_input(ask).strip().lower()
+        while ask_yesno == '' or self.__regex_yesno__.sub("",ask_yesno) != '':
+            ask_yesno = raw_input(ask).strip().lower()
+        return ask_yesno
+
+    def __install_local__(self):
+        tmpFile = "/tmp/%s-%s" % (self.parent().appName(), self.parent().pid())
+        self.replacePythonVersion(self.this(),tmpFile)
+        result, stdout = self.shell("cp %s %s" % ( tmpFile, self.localInstallPath()))
+        result, stdout = self.shell("chmod +x %s" % self.localInstallPath())
+        if result:
+            self.parent().safeMsg("Installed Locally! \n  Please type 'hash -r' to refresh bash shell hash!\n  Then, you can type '%s' to run!" % self.parent().appName(), "SELF INSTALL")
+
+    def replacePythonVersion(self, finName, foutName, version=None):
+        fin = open(finName, "r")
+        fout = open(foutName, "w")
+        if version is None:
+            version = self.pythonVersion()
+        lineNum = 1
+        for line in fin:
+            if lineNum==1:
+                if version.startswith("3."):
+                    fout.write(\
+                        line\
+                        .replace('#!/usr/bin/env python', '#!/usr/bin/env python3'))
+                elif version.startswith("2."):
+                    fout.write(\
+                        line\
+                        .replace('#!/usr/bin/env python3', '#!/usr/bin/env python'))
+                else:
+                    fout.write(line)
+            else:
+                fout.write(line)
+            lineNum = lineNum + 1
+        fout.close()
+        fin.close()
+        if os.path.exists(foutName):
+            self.parent().safeMsg("Temp executable created at %s !" % foutName, "FILE CREATED")
+            return True
+        else:
+            return False
+
+    def __self_install__(self):
+        result = False
+        try_global = True
+        tmpFile = "/tmp/%s-%s" % (self.parent().appName(), self.parent().pid())
+        if self.parent().username() != 'root':
+            if self.parent().allowInstallLocal():
+                if self.__ask_yesno__('You are not using root account. Do you want to continue? (yes/no) ') == 'yes':
+                    if self.__ask_yesno__('Install globally (yes) or locally(no)? (yes/no) ') == 'no':
+                        try_global = False
+                        result = self.__install_local__()
+            elif self.__ask_yesno__('You are not using root account. Do you want to continue? (yes/no) ') == 'no':
+                try_global = False
+                result = False
+            if try_global:
+                if self.linuxDistro() == 'Alpine':
+                    self.parent().infoMsg("Alpine Detected!", "OPERATION SYSTEM")
+                    self.parent().criticalMsg("You should be root or sudo to install globally.", "SUDO FAILED")
+                    result = False
+                elif self.sudo_test():
+                    self.replacePythonVersion(self.this(),tmpFile)
+                    result, stdout = self.shell("sudo cp %s %s" % (tmpFile, self.globalInstallPath()))
+                    result, stdout = self.shell("sudo chmod +x %s" % self.globalInstallPath())
+                else:
+                    self.parent().criticalMsg("You should be root or sudo to install globally.", "SUDO FAILED")
+                    result = False
+        else:
+            self.replacePythonVersion(self.this(),tmpFile)
+            result, stdout = self.shell("cp %s %s" % ( tmpFile, self.globalInstallPath()))
+            result, stdout = self.shell("chmod +x %s" % self.globalInstallPath())
+        self.removeFile(tmpFile)
+        if result:
+            if try_global:
+                self.parent().safeMsg("Installed Globally! \n  Please type 'hash -r' to refresh bash shell hash!\n  Then, you can type '%s' to run!" % self.parent().appName(), "SELF INSTALL")
+            else:
+                self.parent().safeMsg("Installed Locally! \n  Please type 'hash -r' to refresh bash shell hash!\n  Then, you can type '%s' to run!" % self.parent().appName(), "SELF INSTALL")
+
+    def __self_install_from_download__(self):
+        if self.installedGlobal():
+            self.parent().criticalMsg("You have installed globally already!", "SELF INSTALL")
+        elif self.parent().username() != 'root':
+            self.parent().criticalMsg("You must be root to continue installation!", "SELF INSTALL")
+        else:
+            self.__self_install__()
+
+    def comparePath(self, p1, p2):
+        return os.path.abspath(p1)==os.path.abspath(p2)
+
+    def duplication_warning(self):
+        if self.installedLocal() and self.installedGlobal():
+            self.parent().criticalMsg("It may causes error if you have installed both local version and Global Version!\n  Please uninstall local version by,\n    %s self-uninstall-local" % self.parent().appPath(), "INSTALLED TWICE")
+
+    def globalInstallPath(self):
+        return '%s%s' % (self.parent().globalInstallRoot(), self.parent().appName())
+
+    def hasGlobalInstallation(self):
+        return  os.path.exists(self.globalInstallPath())
+
+    def info(self, usage=""):
+        msg1="%s (%s.%s) by %s on %s" % (self.parent().appName(),self.parent().majorVersion(),\
+            self.parent().minorVersion(),self.parent().author(),self.parent().lastUpdate())
+        gcc = sys.version
+        if '\n' in gcc:
+            gcc = gcc.split('\n')[1]
+        elif '[' in gcc and ']' in gcc:
+            gcc = gcc.split('[')[1].split(']')[0]
+        if gcc=='GCC':
+            gcc= '[GCC]'
+        if self.isGlobal():
+            app = "You are using the GLOBAL INSTALLED version, location:"
+        elif self.isLocal():
+            app = "You are using the LOCAL INSTALLED version, location:"
+        else:
+            app = "You are using an UNINSTALLED version, location:" 
+        msg = [
+            msg1, 
+            "Python %s" % self.pythonVersion(),"%s %s" % (self.linuxDistro(), gcc), 
+            '',
+            '%s' % app,
+            '    %s' % self.this(),
+            '', 
+            "Basic Usage:",
+            "    %s" % usage,
+            '',
+            'Please visit our homepage: ',
+            '    %s' % self.parent().homepage()
+        ]
+        starLine=[]
+        space=[]
+        spaces=[[],[],[],[],[],[],[],[],[],[],[],[]]
+        maxLen=len(msg[0])
+        for n in range(1,12):
+            if len(msg[n]) > maxLen :
+                maxLen=len(msg[n])
+        for n in range(0,12):
+            for i in range(1,maxLen - len(msg[n]) + 1):
+                spaces[n].append(' ')
+            msg[n]=msg[n] + ''.join(spaces[n])
+        for i in range(1,maxLen + 5):
+            starLine.append("*")
+        for i in range(1,maxLen + 1):
+            space.append(" ")
+        print(''.join(starLine))
+        print('* %s *' % ''.join(space))
+        for n in range(0,12):
+            print('* %s *' % msg[n])
+        print('* %s *' % ''.join(space))
+        print(''.join(starLine))
+
+    def install_local(self):
+        tmpFile = "/tmp/%s-%s" % (self.appName(), self.pid())
+        self.replacePythonVersion(self.this(),tmpFile)
+        result, stdout = self.shell("cp %s %s" % ( tmpFile, self.localInstallPath()))
+        result, stdout = self.shell("chmod +x %s" % self.localInstallPath())
+        if result:
+            self.safeMsg("Installed Locally! \n  Please type 'hash -r' to refresh bash shell hash!\n  Then, you can type '%s' to run!" % self.appName(), "SELF INSTALL")
+
+    def installedGlobal(self):
+        return os.path.exists(self.globalInstallPath()) 
+
+    def installedLocal(self):
+        which = self.which()
+        if which == '' or which == self.globalInstallPath():    
+            return False    
+        return os.path.exists(self.which()) 
+
+    def isGlobal(self):
+        return self.this() == self.globalInstallPath()
+
+    def isLocal(self):
+        which = self.parent().which()
+        if which == '' or self.comparePath(which, self.globalInstallPath()):
+            return False
+        return self.comparePath(self.this(),which)
+
+    def localInstallFolder(self):
+        return os.path.abspath('%s/.local/bin' % self.parent().home())
+
+    def localInstallPath(self):
+        return os.path.abspath('%s/%s' % (self.localInstallFolder(), self.parent().appName()))
+
+    def mkdir_localInstallFolder(self):
+        os.mkdir(self.localInstallPath())
+
+    def selfInstall(self):
+        if self.isGlobal():
+            self.parent().infoMsg("You are using Global Installation's copy already!", "SELF INSTALL")
+            if 'yes' == self.__ask_yesno__('Do you want to overwrite the global installation? (yes/no) '):  
+                self.__self_install__()
+        elif self.isLocal():
+            self.parent().infoMsg("You are using Local Installation's copy already!", "SELF INSTALL")
+            if 'yes' == self.__ask_yesno__('Do you want to overwrite the global installation? (yes/no) '):  
+                self.__self_install__()
+        elif self.installedGlobal():
+            self.parent().infoMsg("Global Installation installed already!", "SELF INSTALL")
+            if 'yes' == self.__ask_yesno__('Do you want to overwrite the global installation? (yes/no) '):  
+                self.__self_install__()
+        else:
+            self.__self_install_from_download__()
+
+    def selfUninstallGlobal(self):
+        if self.installedGlobal():
+            result = False
+            if self.parent().username() != 'root':
+                if self.sudo_test():
+                    self.sudoRemoveFile(self.globalInstallPath())
+                    result = True
+                else:
+                    self.parent().criticalMsg("You should be root or sudo to uninstall globally.", "GLOBAL UNINSTALL")
+            else:
+                self.removeFile(self.globalInstallPath())
+                result = True
+            if result:
+                self.parent().infoMsg("You have uninstalled successfully. Please run `hash -r` manually!", "LOCAL UNINSTALL")
+        else:
+            self.parent().infoMsg("You don't have any global installation.", "GLOBAL UNINSTALL")
+
+    def selfUninstallLocal(self):
+        if self.installedLocal():
+            self.removeFile(self.localInstallPath())
+            self.parent().infoMsg("You have uninstalled successfully. Please run `hash -r` manually!", "LOCAL UNINSTALL")
+        else:
+            self.parent().infoMsg("You don't have any local installation.", "LOCAL UNINSTALL")
+
+    def this(self):
+        if __file__ == '<stdin>':
+            return ''
+        return os.path.abspath(__file__)
+
+    def __init__(self,fromClass=None,appName='',author='',lastUpdate='',homepage='',majorVersion=0,minorVersion=0):
+        try:
+            super().__init__(fromClass, appName, author, lastUpdate, homepage , majorVersion, minorVersion)
+        except:
+            super(InstallableApp, self).__init__(fromClass, appName, author, lastUpdate, homepage , majorVersion, minorVersion)
+        AttrChild(fromClass=fromClass,name="appPath",value="")
+        AttrChild(fromClass=fromClass,name="globalInstallRoot",value="/usr/local/bin/")
+        AttrChild(fromClass=fromClass,name="allowInstallLocal",value=False)
+        fromClass.__dict__['alpine_ask_install_sudo']=self.__alpine_ask_install_sudo__.__get__(fromClass)
+        fromClass.__dict__['duplication_warning']=self.duplication_warning.__get__(fromClass)
+        fromClass.__dict__['globalInstallPath'] = self.globalInstallPath.__get__(fromClass)
+        fromClass.__dict__['hasGlobalInstallation']=self.hasGlobalInstallation.__get__(fromClass)
+        fromClass.__dict__['install_local']=self.install_local.__get__(fromClass)
+        fromClass.__dict__['installedGlobal'] = self.installedGlobal.__get__(fromClass)
+        fromClass.__dict__['installedLocal'] = self.installedLocal.__get__(fromClass)
+        fromClass.__dict__['info'] = self.info.__get__(fromClass)
+        fromClass.__dict__['isLocal'] = self.isLocal.__get__(fromClass)
+        fromClass.__dict__['isGlobal'] = self.isGlobal.__get__(fromClass)
+        fromClass.__dict__['localInstallPath'] = self.localInstallPath.__get__(fromClass)
+        fromClass.__dict__['mkdir_localInstallFolder'] = self.mkdir_localInstallFolder.__get__(fromClass)
+        fromClass.__dict__['replacePythonVersion'] = self.replacePythonVersion.__get__(fromClass)
+        fromClass.__dict__['selfInstall']=self.selfInstall.__get__(fromClass)
+        fromClass.__dict__['selfUninstallGlobal']=self.selfUninstallGlobal.__get__(fromClass)
+        fromClass.__dict__['selfUninstallLocal']=self.selfUninstallLocal.__get__(fromClass)
+        fromClass.__dict__['this'] = self.this.__get__(fromClass)
+        if __file__ == '<stdin>':
+            fromClass.appPath('')
+        else:
+            appPath = self.this()
+            if not appPath.startswith(fromClass.globalInstallRoot()):
+                if self.comparePath(appPath, '%s/%s' % (os.getcwd(),appPath.split("/")[-1])):
+                    fromClass.appPath("./%s" % appPath.split("/")[-1])
+                elif self.isLocal():
+                    fromClass.appPath(appPath.split("/")[-1])
+                else:
+                    fromClass.appPath(appPath)
+            else:
+                fromClass.appPath(appPath.split("/")[-1])
+
+class MakeMaster(object):
+
+    def __ask_new__(self):
+        regex_projectType = re.compile(r"cpp|c")
+        regex_projectVersion = re.compile(r"[0-9]+(\.[0-9]+)?")
+        regex_projectName = re.compile(r"([A-Za-z][0-9A-Za-z]+)")
+        regex_email = re.compile(r"([^@]+@[0-9a-z\-\.]+)")
+        ask = 'Please enter project type (c, cpp): '
+        projectType = raw_input(ask).strip().lower()
+        while projectType == '' or regex_projectType.sub("",projectType) != '':
+            projectType = raw_input(ask).strip().lower()
+        self.projectType(projectType)
+        ask = 'Please enter project name (e.g. HelloWorld): '
+        name = raw_input(ask).strip()
+        while name == '' or regex_projectName.sub("",name) != '':
+            name = raw_input(ask).strip()
+        if os.path.exists(name):
+            self.criticalMsg("Folder: %s exists!" % name, "PROJECT FOLDER")
+        else:
+            self.projectName(name)
+            ask = 'Please enter project version (e.g. 1.0): '
+            projectVersion = raw_input(ask).strip()
+            while projectVersion == '' or regex_projectVersion.sub("",projectVersion) != '':
+                projectVersion = raw_input(ask).strip()
+            self.projectVersion(regex_projectVersion)
+            ask = "Please enter project bug report email address: "
+            bugReportAddress = raw_input(ask).strip()
+            while bugReportAddress == '' or regex_email.sub("",bugReportAddress) != '':
+                bugReportAddress = raw_input(ask).strip()
+            os.makedirs(name)
+            config = configparser.ConfigParser()
+            try:
+                config.add_section("project")
+                config.set("project", "type", projectType)
+                config.set("project", "name", name)
+                config.set("project", "version", projectVersion)
+                config.set("project", "bugreportaddress", bugReportAddress)
+                with open("%s/project.ini" % name, 'w') as f1:
+                    config.write(f1)
+            except:
+                self.criticalMsg("Error in Creating project.ini", "PROJECT INI")
+                return name
+            self.__create_readme__(name)
+            os.makedirs("%s/src" % name)
+            tmpFile = "/tmp/%s-%s" % (self.appName(), self.pid())
+            self.replacePythonVersion(self.this(), tmpFile, '2.')
+            result, stdout = self.shell("chmod +x %s" % tmpFile)
+            shutil.copy("%s" % tmpFile,"%s/%s" % (name, self.appName()))
+            self.removeFile(tmpFile)
+            self.__createGitIgnore__(name)
+            if self.projectType() == 'c':
+                self.__create_c_project__( name )
+            elif self.projectType() == 'cpp':
+                self.__create_main_cpp__( name )
+            self.safeMsg("Please change folder by, 'cd %s' ." % name, "PROJECT CREATED")
+            return name
+
+    def __build__(self):
+        if self.__check__():
+            self.__cleanTarget__()
+            result = self.__writeRootMakefile__()
+        else:
+            result = False
+        if result:
+            result = self.__writeSrcMakefile__()
+        if result:
+            result, stdout = self.shell("autoscan")
+        if result:
+            self.safeMsg("Command 'autoscan' executed!", "COMMAND")
+            result = self.__replaceConfigure__()
+        if result:
+            result, stdout = self.shell("autoheader")
+        if result:
+            self.safeMsg("Command 'autoheader' executed!", "COMMAND")
+            result, stdout = self.shell("aclocal")
+        if result:
+            self.safeMsg("Command 'aclocal' executed!", "COMMAND")
+            result, stdout = self.shell("autoconf")
+        if result:
+            self.safeMsg("Command 'autoconf' executed!", "COMMAND")
+            result, stdout = self.shell(command="automake --add-missing", ignoreErr=True)
+        if result:
+            self.safeMsg("Command 'automake --add-missing' executed!", "COMMAND")
+            result, stdout = self.shell("./configure")
+        if result:
+            self.safeMsg("Command './configure' executed!", "COMMAND")
+            result, stdout = self.shell("make")
+        if result:
+            self.safeMsg("Command 'make' executed!", "COMMAND")
+        if os.path.exists("src/%s" % self.projectName()):
+            os.makedirs("target")
+            if os.path.exists("target"):
+                shutil.move("src/%s" % self.projectName(), "target/%s" % self.projectName() )
+                if os.path.exists("target/%s" % self.projectName() ):
+                    self.safeMsg('You can run the program by: "target/%s"' % self.projectName(),'BUILD')
+                    return True
+        return False
+
+    def __check__(self):
+        result = self.__check_config__()
+        if result:
+            result = self.__check_autoscan__()
+        return result
+
+    def __check_autoscan__(self):
+        result, stdout = self.shell("which autoscan", ignoreErr=True)
+        if stdout=="":
+            self.criticalMsg("'autoconf' needed to be installed in this computer. Please run '%s self-install' to resolve!" % self.appName(), "PACKAGE REQUIRED")
+            return False
+        return result
+
+    def __check_config__(self):
+        if os.path.exists("project.ini"):
+            config = configparser.ConfigParser()
+            config.read( "project.ini" )
+            if config.has_section("project"):
+                try:
+                    self.projectName( config.get("project", "name"))
+                except:
+                    self.criticalMsg("Project Name not in config","PROJECT NAME FAILED")
+                    return False
+                try:
+                    self.projectType( config.get("project", "type"))
+                except:
+                    self.criticalMsg("Project Type not in config","PROJECT TYPE FAILED")
+                    return False
+                try:
+                    self.projectVersion( config.get("project", "version"))
+                except:
+                    self.criticalMsg("Project Version not in config", "PROJECT VERSION FAILED")
+                    return False
+                try:
+                    self.projectBugReportAddress( config.get("project", "bugreportaddress"))
+                except:
+                    self.criticalMsg("Bug Report Address not in config", "BUG REPORT ADDRESS")
+                    return False
+                return True
+        self.criticalMsg("File: project.ini not found or value invalid!","NO CONFIG")
+        return False
+
+    def __clean__(self):
+        self.__cleanTemp__()
+        self.__removeTargetFile__()
+
+    def __cleanBuild__(self):
+        if self.__check__():
+            self.__clean__()
+            result = self.__build__()
+            if result:
+                self.__cleanTemp__()
+                self.safeMsg('You can run the program by: "target/%s"' % self.projectName(),'BUILD')
+        else:
+            self.criticalMsg("Terminated!","CLEAN BUILD")
+
+    def __cleanTarget__(self):
+        self.removeFolder("target")
+        self.removeFile("src/%s" % self.projectName())
+
+    def __cleanTemp__(self):
+        self.removeFile("aclocal.m4")
+        self.removeFile("autoscan.log")
+        self.removeFile("compile")
+        self.removeFile("configure")
+        self.removeFile("configure.ac")
+        self.removeFile("configure.scan")
+        self.removeFile("config.h")
+        self.removeFile("config.h.in")
+        self.removeFile("config.h.in~")
+        self.removeFile("config.log")
+        self.removeFile("config.status")
+        self.removeFile("depcomp")
+        self.removeFile("install-sh")
+        self.removeFile("Makefile")
+        self.removeFile("Makefile.am")
+        self.removeFile("Makefile.in")
+        self.removeFile("missing")
+        self.removeFile("stamp-h1")
+        self.removeFile("src/Makefile")
+        self.removeFile("src/Makefile.am")
+        self.removeFile("src/Makefile.in")
+        self.removeFolder("autom4te.cache") 
+        self.removeFolder("src/.deps")
+        self.removeFilePattern("src", ".o")
+        self.infoMsg('All temporary files removed!','CLEAN')
+
+    def __create_c_project__(self, name):
+        self.__create_get_line_c__(name)
+        self.__create_get_line_h__(name)
+        self.__create_main_c__(name)
+
+    def __create_get_line_c__(self, name):
+        code = [
+            '#include "get_line.h"',
+            '',
+            'void get_line(char* s) {',
+            '	char *p;',
+            '	if( fgets(s, BUFSIZE, stdin) != NULL) {',
+            "		if((p = strchr(s, '\\n')) != NULL) *p = 0;",
+            "		if((p = strchr(s, '\\r')) != NULL) *p = 0;",
+            '	}',
+            '}',
+            ''
+        ]
+        with open("%s/src/get_line.c" % name, "w") as f:
+            f.write('\n'.join(code))
+
+    def __create_get_line_h__(self, name):
+        code = [
+            '#ifndef __GET_LINE_H',
+            '',
+            '    #define __GET_LINE_H',
+            '    #include <stdio.h>',
+            '    #include <stdlib.h>',
+            '    #include <string.h>',
+            '    #define BUFSIZE 2048',
+            '    void get_line(char* s);',
+            '',
+            '#endif',
+            ''
+        ]
+        with open("%s/src/get_line.h" % name, "w") as f:
+            f.write('\n'.join(code))
+
+    def __createGitIgnore__(self, name):
+        fname = "%s/.gitignore" % name
+        f = open(fname, "w")
+        content = [ 
+            "/aclocal.m4",
+            "/autom4te.cache/",
+            "/autoscan.log",
+            "/compile",
+            "/config.*",
+            "/configure",
+            "/configure.*",
+            "/depcomp",
+            "/install-sh",
+            "/libtool",
+            "/ltmain.sh",
+            "/m4/",
+            "/Makefile",
+            "/Makefile.*",
+            "/missing",
+            "/target",
+            "/stamp-h?",
+            ".deps/",
+            ".dirstamp",
+            ".libs/",
+            "*.l[ao]",
+            "*~",
+            "src/Makefile.*",
+            "src/.deps",
+            "src/*.o",
+            "src/%s" % self.appName()
+        ]
+        f.write("\n".join(content))
+        f.close()
+        if os.path.exists(fname):
+            self.safeMsg("Created .gitignore !", "FILE CREATED")
+            return True
+        else:
+            return False
+
+    def __create_main_c__(self, name):
+        code = [
+            '#include "get_line.h"',
+            '',
+            'int main(int argc, char* argv[]){',
+            '	char name[BUFSIZE];',
+            '	while(1) {',
+            '		printf("What is your name (type \'quit\' to quit) ? ");',
+            '       fflush(stdout);'
+            '		get_line(name);',
+            '		if( strcmp(name, "quit") == 0 ) break;',
+            '		printf( "Hello, %s!\\n", name);',
+            '	}',
+            '}',
+            ''
+        ]
+        with open("%s/src/main.c" % name, "w") as f:
+            f.write('\n'.join(code))
+
+    def __create_main_cpp__(self, name):
+        code = [
+            '#include<iostream>',
+            '#include<string>',
+            'using std::cin;',
+            'using std::cout;',
+            'using std::endl;',
+            'using std::string;',
+            '',
+            'int main(int argc, char* argv[]){',
+            '    string name;',
+            '    while(true){',
+            '        cout<<"What is your name (type \'quit\' to quit) ? ";',
+            '        getline(cin, name);',
+            '        if(name.compare( "quit" ) == 0) break;',
+            '        cout<<"Hello, "<<name<<"!"<<endl;',
+            '    }',
+            '    return 0;',
+            '}',
+            ''
+        ]
+        with open("%s/src/main.cpp" % name, "w") as f:
+            f.write('\n'.join(code))
+
+    def __create_readme__(self, name):
+        code = [
+            '# %s' % self.projectName(),
+            'This project is generated by [%s](%s). ' % (self.appName(), self.homepage()),
+            '',
+            '## 1. Build Basic',
+            'You are recommend to install [{0}]({2}) before building or running this project. [{0}]({2}) is written by {1}.'.format(self.appName(),self.author(),self.homepage()), 
+            '',
+            '### 1.1 Installation of [%s](%s)' % (self.appName(), self.homepage()),
+            '',
+            'Installation of %s is easy. For most linux system, it has been installed with either "python" or "python3". Check your system by typing either "python" or "python3" to see which version has been installed. For python3, the installation command is:' % self.appName(),
+            '',
+            '```',
+            'python3 ./%s self-install' % self.appName(),
+            '```',
+            'For python, the installation command is:',
+            '```',
+            'python ./%s self-install' % self.appName(),
+            '```',
+            '',
+            '### 1.2 Building executable',
+            'To build the executable, you can use the following command:',
+            '```',
+            '%s build' % self.appName(),
+            '```',
+            '',
+            '## 1.3 Run executable',
+            'If you want to build and run together, you can use the run command:',
+            '```',
+            '%s run' % self.appName(),
+            '```',
+            '',
+            '### 1.4 Install executable',
+            'If you wanted to build and install, you can use the install command:',
+            '```',
+            '%s install' % self.appName(),
+            '```',
+            'Then you can execute directly by:',
+            '```',
+            '%s' % self.projectName(),
+            '```',
+            '',
+            '### 1.5 Clean project',
+            'If you wanted to remove temporary files, you can use the following command:',
+            '```',
+            '%s clean' % self.appName(),
+            '```',
+            '',
+            '### 1.6 Compatibility',
+            'make-master has been tested for the following Operation System:',
+            '```',
+            'AlmaLinux 8',
+            'Alpine Linux v3.12',
+            'Alpine Linux v3.15',
+            'Arch Linux',
+            'CentOS Linux 7',
+            'CentOS Stream 8',
+            'CentOS Stream 9',
+            'Debian 9',
+            'Debian 10',
+            'Debian 11',
+            'Fedora Linux 34',
+            'Fedora Linux 35',
+            'Gentoo Linux',
+            'openSUSE Leap 15.3',
+            'Rocky Linux 8.5',
+            'Slackware 15',
+            'Ubuntu 16.04',
+            'Ubuntu 18.04',
+            'Ubuntu 20.04',
+            '```',
+            ''
+        ]
+        with open("%s/README.md" % name, "w") as f:
+            f.write('\n'.join(code))
+        if os.path.exists("%s/README.md" % name):
+            self.safeMsg("Created ./README.md !", "NEW")
+
+    def __fix_autoscan__(self, autoscanFile="/usr/bin/autoscan"):
+        if os.path.exists(autoscanFile):
+            fin = open(autoscanFile, "rt")
+            tmpFile = '/tmp/autoscan-%s' % self.pid()
+            fout = open(tmpFile, "wt")
+            lineNum = 1
+            for line in fin:
+                if 's/\\${[^\\}]*}//g;' in line:
+                    line = line.replace('s/\\${[^\\}]*}//g;','s/\\$\\{[^\\}]*}//g;')
+                    self.safeMsg('Found and fix regex in autoscan at line: #%s' % lineNum,"FIX AUTOSCAN")
+                fout.write(line)
+                lineNum += 1
+            fin.close()
+            fout.close()
+            result, stdout = self.shell("sudo cp %s /usr/bin/autoscan" % tmpFile)
+
+    def __install__(self):
+        if self.__check__():
+            result = self.__build__()
+            if result:
+                if self.username() == 'root':
+                    result, stdout = self.shell("make install")
+                    if result:
+                        self.__cleanTemp__()
+                        self.safeMsg('You can run the program by: "%s"' % self.projectName(),'INSTALLATION')
+                else:
+                    if self.sudo_test():
+                        result, stdout = self.shell("sudo make install")
+                        if result:
+                            self.__cleanTemp__()
+                            self.safeMsg('You can run the program by: "%s"' % self.projectName(),'INSTALLATION')
+                    elif self.linuxDistro() == 'Alpine':
+                        self.criticalMsg("For Alphine Linux. You should be root or sudo should been setup properly.", "SUDO FAILED")
+                    else:
+                        self.criticalMsg("You should be root or sudo.", "SUDO FAILED")
+        else:
+            self.criticalMsg("Terminated!","INSTALL")
+
+    def __install_automake__(self, useSudo=False):
+        if useSudo:
+            su = 'sudo '
+        else:
+            su = ''
+        result = False
+        if self.linuxDistro().startswith('AlmaLinux 8.'):
+            self.infoMsg("AlmaLinux 8 Detected! Installation takes time, please wait.", "OPERATION SYSTEM")
+            self.__install_automake_dnf__(su)
+        elif self.linuxDistro().startswith('AlmaLinux '):
+            self.infoMsg("AlmaLinux Detected! Installation takes time, please wait.", "OPERATION SYSTEM")
+            self.__install_automake_dnf__(su)
+        elif self.linuxDistro().startswith('Arch '):
+            self.infoMsg("Arch Linux Detected! Installation takes time, please wait.", "OPERATION SYSTEM")
+            self.__install_automake_pacman__(su)
+        elif self.linuxDistro().startswith('Ubuntu 16.'):
+            self.infoMsg("Ubuntu 16 Detected! Installation takes time, please wait.", "OPERATION SYSTEM")
+            self.__install_automake_apt__(su)
+            self.__fix_autoscan__()
+        elif self.linuxDistro().startswith('Ubuntu'):
+            self.infoMsg("Ubuntu Detected! Installation takes time, please wait.", "OPERATION SYSTEM")
+            self.__install_automake_apt__(su)
+        elif self.linuxDistro().startswith('Debian GNU/Linux 11'):
+            self.infoMsg("Debian 11 Detected! Installation takes time, please wait.", "OPERATION SYSTEM")
+            self.__install_automake_apt__(su)
+        elif self.linuxDistro().startswith('Debian GNU/Linux 10'):
+            self.infoMsg("Debian 10 Detected! Installation takes time, please wait.", "OPERATION SYSTEM")
+            self.__install_automake_apt__(su)
+        elif self.linuxDistro().startswith('Debian GNU/Linux 9'):
+            self.infoMsg("Debian 9 Detected! Installation takes time, please wait.", "OPERATION SYSTEM")
+            self.__install_automake_apt__(su)
+        elif self.linuxDistro().startswith('Debian'):
+            self.infoMsg("Debian Detected! Installation takes time, please wait.", "OPERATION SYSTEM")
+            self.__install_automake_apt__(su)
+            self.__fix_autoscan__()
+        elif self.linuxDistro().startswith('Rocky Linux 8.'):
+            self.infoMsg("Rocky Linux 8 Detected! Installation takes time, please wait.", "OPERATION SYSTEM")
+            self.__install_automake_dnf__(su)
+        elif self.linuxDistro().startswith('Rocky '):
+            self.infoMsg("Rocky Linux Detected! Installation takes time, please wait.", "OPERATION SYSTEM")
+            self.__install_automake_dnf__(su)
+            self.__fix_autoscan__()
+        elif self.linuxDistro().startswith('openSUSE Leap 15.'):
+            self.infoMsg("openSUSE Leap 15 Detected! Installation takes time, please wait.", "OPERATION SYSTEM")
+            self.__install_automake_zypper__(su)
+        elif self.linuxDistro().startswith('openSUSE '):
+            self.infoMsg("OpenSUSE Detected! Installation takes time, please wait.", "OPERATION SYSTEM")
+            self.__install_automake_zypper__(su)
+            self.__fix_autoscan__()
+        elif self.linuxDistro().startswith('SUSE Linux Enterprise Server'):
+            self.infoMsg("SUSE Linux Enterprise Server Detected! Installation takes time, please wait.", "OPERATION SYSTEM")
+            self.__install_automake_zypper__(su)
+        elif self.linuxDistro().startswith('SUSE '):
+            self.infoMsg("SUSE Linux Detected! Installation takes time, please wait.", "OPERATION SYSTEM")
+            self.__install_automake_zypper__(su)
+            self.__fix_autoscan__()
+        elif self.linuxDistro().startswith('CentOS Stream 9'):
+            self.infoMsg("CentOS Stream 9 Detected! Installation takes time, please wait.", "OPERATION SYSTEM")
+            self.__install_automake_dnf__(su)
+        elif self.linuxDistro().startswith('CentOS Stream 8'):
+            self.infoMsg("CentOS Stream 8 Detected! Installation takes time, please wait.", "OPERATION SYSTEM")
+            self.__install_automake_dnf__(su)
+        elif self.linuxDistro().startswith('CentOS Stream'):
+            self.infoMsg("CentOS Stream Detected! Installation takes time, please wait.", "OPERATION SYSTEM")
+            self.__install_automake_dnf__(su)
+        elif self.linuxDistro().startswith('CentOS Linux 7'):
+            self.infoMsg("CentOS Linux 7 Detected! Installation takes time, please wait.", "OPERATION SYSTEM")
+            self.__install_automake_yum__(su)
+        elif self.linuxDistro().startswith('CentOS'):
+            self.infoMsg("CentOS Linux Detected! Installation takes time, please wait.", "OPERATION SYSTEM")
+            self.__install_automake_yum__(su)
+            self.__fix_autoscan__()
+        elif self.linuxDistro().startswith('Fedora Linux 35') or self.linuxDistro().startswith('Fedora 35'):
+            self.infoMsg("Fedora Linux 35 Detected! Installation takes time, please wait.", "OPERATION SYSTEM")
+            self.__install_automake_dnf__(su)            
+        elif self.linuxDistro().startswith('Fedora 34') or self.linuxDistro().startswith('Fedora Linux 34') :
+            self.infoMsg("Fedora Linux 34 Detected! Installation takes time, please wait.", "OPERATION SYSTEM")
+            self.__install_automake_dnf__(su)
+        elif self.linuxDistro().startswith('Fedora '):
+            self.infoMsg("Fedora Linux Detected! Installation takes time, please wait.", "OPERATION SYSTEM")
+            self.__install_automake_dnf__(su)
+            self.__fix_autoscan__()
+        elif self.linuxDistro().startswith('Gentoo/Linux'):
+            self.infoMsg("Gentoo Linux Detected! ", "OPERATION SYSTEM")
+        elif self.linuxDistro().startswith('Red Hat Enterprise Linux 8'):
+            self.infoMsg("Red Hat Enterprise Linux 8 Detected! Installation takes time, please wait.", "OPERATION SYSTEM")
+            self.__install_automake_dnf__(su)
+        elif self.linuxDistro().startswith('Red Hat Enterprise Linux 7'):
+            self.infoMsg("Red Hat Enterprise Linux 7 Detected! Installation takes time, please wait.", "OPERATION SYSTEM")
+            self.__install_automake_yum__(su)
+        elif self.linuxDistro().startswith('Slackware 15.'):
+            self.infoMsg("Slackware 15 Detected!", "OPERATION SYSTEM")
+            self.__fix_autoscan__()
+        elif self.linuxDistro().startswith('Slackware '):
+            self.infoMsg("Slackware Detected!", "OPERATION SYSTEM")
+            self.__fix_autoscan__()
+        elif self.linuxDistro().startswith('Alpine'):
+            self.infoMsg("Alpine Detected! Installation takes time, please wait.", "OPERATION SYSTEM")
+            self.__install_automake_apk__(su)
+            result, stdout = self.shell("which sudo", True)
+            if stdout=='':
+                self.alpine_ask_install_sudo()
+        else:
+            self.infoMsg("Unknown Operation System Found, '%s'! I will not do additional installation." % self.linuxDistro(), "OPERATION SYSTEM")
+        return result
+
+    def __install_automake_apk__(self, su):
+        result, stdout = self.shell("%sapk add autoconf" % su, True)
+        result, stdout = self.shell("%sapk add automake" % su, True)
+        result, stdout = self.shell("%sapk add build-base" % su, True)
+
+    def __install_automake_apt__(self, su):
+        result, stdout = self.shell("%sapt update" % su, True)
+        result, stdout = self.shell("%sapt install -y build-essential" % su, True)
+        result, stdout = self.shell("%sapt install -y autoconf" % su, True)
+
+    def __install_automake_dnf__(self, su):
+        result, stdout = self.shell("%sdnf install autoconf -y" % su, True)
+        result, stdout = self.shell("%sdnf install automake -y" % su, True)
+        result, stdout = self.shell("%sdnf install gcc-c++ -y" % su, True)
+        result, stdout = self.shell("%sdnf install make -y" % su, True)
+
+    def __install_automake_pacman__(self, su):
+        result, stdout = self.shell("%spacman -S base-devel --noconfirm" % su, True)
+
+    def __install_automake_yum__(self, su):
+        result, stdout = self.shell("%syum install autoconf -y" % su, True)
+        result, stdout = self.shell("%syum install automake -y" % su, True)
+        result, stdout = self.shell("%syum install gcc-c++ -y" % su, True)
+        result, stdout = self.shell("%syum install make -y" % su, True)
+
+    def __install_automake_zypper__(self, su):
+        result, stdout = self.shell("%szypper --non-interactive install autoconf" % su, True)
+        result, stdout = self.shell("%szypper --non-interactive install automake" % su, True)
+        result, stdout = self.shell("%szypper --non-interactive install gcc-c++" % su, True)
+        result, stdout = self.shell("%szypper --non-interactive install make" % su, True)
+
+    def __parseArgs__(self):
+        usage = "%s [build|clean|install|new|run|self-install]" % self.appPath()
+        if self.appPath() != '':
+            if len(sys.argv) > 1:
+                cmd = str(sys.argv[1])
+                if cmd == 'clean':
+                    if self.__check__():
+                        self.__clean__()
+                    else:
+                        self.criticalMsg("Terminated!","CLEAN")
+                elif cmd == 'build':
+                    self.__build__()
+                elif cmd == 'clean-build':
+                    self.__cleanBuild__()
+                elif cmd == "self-install":
+                    self.__install_automake__()
+                    self.selfInstall()
+                elif cmd == "self-uninstall-global":
+                    self.selfUninstallGlobal()
+                elif cmd == "self-uninstall-local":
+                    self.selfUninstallLocal()
+                elif cmd == 'install':
+                    self.__install__()
+                elif cmd == 'run':
+                    self.__run__()
+                elif cmd == 'new':
+                    self.__ask_new__()
+                else:
+                    self.info(usage)
+            else:
+                self.info(usage)
+        else:
+            self.selfInstall()
+
+    def __removeTargetFile__(self):
+        if os.path.exists("src") and os.path.isdir("src"):
+            self.removeFile("src/%s" % self.projectName())
+
+    def __replaceConfigure__(self):
+        fin = open("configure.scan", "rt")
+        fout = open("configure.ac", "wt")
+        for line in fin:
+            fout.write(\
+                line\
+                .replace('FULL-PACKAGE-NAME', self.projectName())\
+                .replace('VERSION', self.projectVersion())\
+                .replace('BUG-REPORT-ADDRESS',self.projectBugReportAddress())\
+                .replace('AC_CONFIG_SRCDIR','AM_INIT_AUTOMAKE([foreign])\nAC_CONFIG_SRCDIR'))
+        fin.close()
+        fout.close()
+        if os.path.exists("configure.ac"):
+            self.safeMsg("Created ./configure.ac !", "NEW")
+            return True
+        else:
+            return False
+
+    def __run__(self):
+        if self.__check__():
+            result = self.__build__()
+            if result:
+                self.__cleanTemp__()
+                try:
+                    subprocess.run(["target/%s" % self.projectName()])
+                except:
+                    self.__subprocess_run__("target/%s" % self.projectName())
+        else:
+            self.criticalMsg("Terminated!","RUN")
+
+    def __start__(self):
+        self.allowInstallLocal(True)
+        AttrChild(fromClass=self,name="projectType",value="")
+        AttrChild(fromClass=self,name="projectName",value="")
+        AttrChild(fromClass=self,name="projectVersion",value="")
+        AttrChild(fromClass=self,name="projectBugReportAddress",value="")
+        self.__parseArgs__() 
+
+    def __subprocess_run__(self, cmd):
+        self.linuxDistro()
+        p = subprocess.Popen([self.shellCmd(),"-c",cmd])
+        while p.poll() is None:
+            time.sleep(0.5)
+
+    def __writeRootMakefile__(self):
+        f = open("Makefile.am", "w")
+        content = [ "SUBDIRS=src\n" ]
+        f.write("\n".join(content))
+        f.close()
+        if os.path.exists("Makefile.am"):
+            self.safeMsg("Created ./Makefile.am !", "FILE CREATED")
+            return True
+        else:
+            return False
+
+    def __writeSrcMakefile__(self):
+        fileList = []
+        if os.path.exists("src") and os.path.isdir("src"):
+            for file in os.listdir("src"):
+                if file.endswith(".c") or file.endswith(".cpp"):
+                    fileList.append(file)
+        f = open("src/Makefile.am", "w")
+        content = [ "bin_PROGRAMS=%s" % self.projectName(), \
+            "%s_SOURCES=%s" % (self.projectName(), " ".join(fileList)) ]
+        f.write("\n".join(content))
+        f.close()
+        if os.path.exists("src/Makefile.am"):
+            self.safeMsg("Created src/Makefile.am !", "FILE CREATED")
+            return True
+        else:
+            return False
+
+    def __init__(self):
+        InstallableApp(fromClass=self,appName='make-master',author='Cloudgen Wong',homepage="https://make-master.org",lastUpdate='2022-09-20',majorVersion=1,minorVersion=6)
+        self.__start__()
+
+if __name__ == '__main__':
+	MakeMaster()
